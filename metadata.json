@@ -1,0 +1,7 @@
+{
+  "name": "Ethereal Particle Lotus",
+  "description": "A procedurally generated 3D particle lotus flower inspired by digital art, featuring iridescent colors, bloom effects, and interactive rotation.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
