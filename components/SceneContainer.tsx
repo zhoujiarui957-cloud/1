@@ -4,14 +4,16 @@ import { OrbitControls, Stars } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import LotusParticles from './LotusParticles';
 import { LotusConfig } from '../types';
+import * as THREE from 'three';
 
 interface SceneContainerProps {
   config: LotusConfig;
   isBlooming: boolean;
   isHandPresent: boolean;
+  activeColor: string;
 }
 
-const SceneContainer: React.FC<SceneContainerProps> = ({ config, isBlooming, isHandPresent }) => {
+const SceneContainer: React.FC<SceneContainerProps> = ({ config, isBlooming, isHandPresent, activeColor }) => {
   return (
     <div className="w-full h-full">
       <Canvas
@@ -21,16 +23,20 @@ const SceneContainer: React.FC<SceneContainerProps> = ({ config, isBlooming, isH
       >
         <color attach="background" args={['#050002']} /> 
         
-        {/* Ambient warmth */}
-        <ambientLight intensity={0.1} color="#330011" />
+        {/* Dynamic lighting based on active color */}
+        <ambientLight intensity={0.1} color={activeColor} />
         
-        {/* Lights adjusted for Pink/Gold theme */}
-        <pointLight position={[10, 10, 10]} intensity={1.5} color="#ff99cc" />
-        <pointLight position={[-10, 5, -10]} intensity={1.2} color="#ff0066" />
-        <pointLight position={[0, -10, 0]} intensity={0.8} color="#ffcc00" /> 
+        <pointLight position={[10, 10, 10]} intensity={1.5} color={activeColor} />
+        <pointLight position={[-10, 5, -10]} intensity={1.2} color="white" />
+        <pointLight position={[0, -10, 0]} intensity={0.8} color={activeColor} /> 
 
         <Suspense fallback={null}>
-          <LotusParticles config={config} isBlooming={isBlooming} isHandPresent={isHandPresent} />
+          <LotusParticles 
+            config={config} 
+            isBlooming={isBlooming} 
+            isHandPresent={isHandPresent}
+            activeColor={activeColor}
+          />
           
           {/* Subtle background stars */}
           <Stars radius={100} depth={50} count={3000} factor={4} saturation={0.5} fade speed={0.5} />

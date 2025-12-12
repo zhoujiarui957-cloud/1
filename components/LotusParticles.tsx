@@ -7,6 +7,7 @@ interface LotusParticlesProps {
   config: LotusConfig;
   isBlooming: boolean;
   isHandPresent: boolean;
+  activeColor: string;
 }
 
 // Custom Shader for the breathing particle lotus
@@ -167,7 +168,7 @@ const calculatePetalShape = (
   return maxOpenAngle;
 };
 
-const LotusParticles: React.FC<LotusParticlesProps> = ({ config, isBlooming, isHandPresent }) => {
+const LotusParticles: React.FC<LotusParticlesProps> = ({ config, isBlooming, isHandPresent, activeColor }) => {
   const shaderRef = useRef<THREE.ShaderMaterial>(null);
   const pointsRef = useRef<THREE.Points>(null);
   const currentBloomRef = useRef(0.0); // Smooth lerp value for bloom
@@ -190,11 +191,26 @@ const LotusParticles: React.FC<LotusParticlesProps> = ({ config, isBlooming, isH
       { count: 32, offset: 0.4 }   
     ];
 
-    // Pink/Gold Palette
-    const colDeep = new THREE.Color('#2a0010');    
-    const colMain = new THREE.Color('#ff0055');    
-    const colLight = new THREE.Color('#ff99cc');   
+    // Dynamic Palette Generation based on activeColor
+    const baseCol = new THREE.Color(activeColor);
+    
+    // Deep center color (darker version of base)
+    const colDeep = baseCol.clone();
+    colDeep.offsetHSL(0, 0, -0.4); 
+
+    // Main color (the base)
+    const colMain = baseCol.clone();
+
+    // Light variation (lighter, slightly desaturated)
+    const colLight = baseCol.clone();
+    colLight.offsetHSL(0, -0.2, 0.3);
+
+    // Tip highlight (White)
     const colTip = new THREE.Color('#ffffff');     
+    
+    // Gold accent (complementary or fixed gold depending on taste, let's keep it Gold for contrast)
+    // Actually, let's shift hue slightly for "Gold" equivalent in other colors, or keep real Gold.
+    // Real gold looks best as a universal accent.
     const colGold = new THREE.Color('#ffaa00');    
 
     const totalParticles = config.petalCount;
@@ -291,7 +307,7 @@ const LotusParticles: React.FC<LotusParticlesProps> = ({ config, isBlooming, isH
       infos: new Float32Array(tempInfo),
       randoms: new Float32Array(tempRand)
     };
-  }, [config.petalCount]);
+  }, [config.petalCount, activeColor]); // Re-calculate when color changes
 
   useFrame((state, delta) => {
     // Rotate the entire flower group

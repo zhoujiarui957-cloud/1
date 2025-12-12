@@ -4,16 +4,21 @@ import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 interface HandTrackerProps {
   onBloomChange: (isBlooming: boolean) => void;
   onPresenceChange: (isPresent: boolean) => void;
+  onSwipe: () => void;
 }
 
-const HandTracker: React.FC<HandTrackerProps> = ({ onBloomChange, onPresenceChange }) => {
+const HandTracker: React.FC<HandTrackerProps> = ({ onBloomChange, onPresenceChange, onSwipe }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [handDetected, setHandDetected] = useState(false);
+  const [secondHandDetected, setSecondHandDetected] = useState(false);
   const lastVideoTimeRef = useRef(-1);
   const requestRef = useRef<number>(0);
   const landmarkerRef = useRef<HandLandmarker | null>(null);
+  
+  // Cooldown for color change to prevent flashing
+  const lastColorChangeTime = useRef<number>(0);
 
   useEffect(() => {
     let mounted = true;
@@ -32,7 +37,7 @@ const HandTracker: React.FC<HandTrackerProps> = ({ onBloomChange, onPresenceChan
             delegate: "GPU"
           },
           runningMode: "VIDEO",
-          numHands: 1
+          numHands: 2 // Enable 2 hands tracking
         });
 
         if (!mounted) return;
@@ -43,26 +48,6 @@ const HandTracker: React.FC<HandTrackerProps> = ({ onBloomChange, onPresenceChan
         setError("Failed to load AI model");
         setLoading(false);
       }
-    };
-
-    const startWebcam = async () => {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { width: 320, height: 240, frameRate: 30 } 
-            });
-            
-            if (videoRef.current && mounted) {
-                videoRef.current.srcObject = stream;
-                videoRef.current.addEventListener('loadeddata', () => {
-                   setLoading(false);
-                   predict();
-                });
-            }
-        } catch (err) {
-            console.error(err);
-            setError("Camera access denied");
-            setLoading(false);
-        }
     };
 
     setupMediaPipe();
@@ -78,6 +63,58 @@ const HandTracker: React.FC<HandTrackerProps> = ({ onBloomChange, onPresenceChan
     };
   }, []);
 
+  const startWebcam = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { width: 320, height: 240, frameRate: 30 } 
+            });
+            
+            if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+                // Add event listener only once
+                videoRef.current.onloadeddata = () => {
+                   setLoading(false);
+                   predict();
+                };
+            }
+        } catch (err: any) {
+            console.error("Camera Error:", err);
+            if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                 setError("Permission denied");
+            } else {
+                 setError(err.message || "Camera error");
+            }
+            setLoading(false);
+        }
+  };
+
+  // Helper to check if a hand is open (fingers extended)
+  const isHandOpen = (landmarks: any[]) => {
+    const wrist = landmarks[0];
+    const fingers = [8, 12, 16, 20]; // Index, Middle, Ring, Pinky tips
+    const pips = [6, 10, 14, 18];    // Corresponding PIP joints
+    
+    let extendedCount = 0;
+    
+    const dist = (p1: any, p2: any) => Math.sqrt(
+        Math.pow(p1.x - p2.x, 2) + 
+        Math.pow(p1.y - p2.y, 2) + 
+        Math.pow(p1.z - p2.z, 2)
+    );
+
+    for (let i = 0; i < 4; i++) {
+        const dTip = dist(wrist, landmarks[fingers[i]]);
+        const dPip = dist(wrist, landmarks[pips[i]]);
+        
+        // If tip is significantly further from wrist than the knuckle is, it's extended
+        if (dTip > dPip) {
+            extendedCount++;
+        }
+    }
+
+    return extendedCount >= 3;
+  };
+
   const predict = () => {
     if (landmarkerRef.current && videoRef.current && videoRef.current.readyState >= 2) {
         const nowInMs = Date.now();
@@ -90,40 +127,33 @@ const HandTracker: React.FC<HandTrackerProps> = ({ onBloomChange, onPresenceChan
                 setHandDetected(true);
                 onPresenceChange(true); // Notify hand is present
 
-                const landmarks = result.landmarks[0];
-                
-                // --- OPEN/CLOSE LOGIC ---
-                // We check if fingers are extended by comparing distance of tip to wrist 
-                // vs distance of PIP (knuckle) to wrist.
-                
-                const wrist = landmarks[0];
-                const fingers = [8, 12, 16, 20]; // Index, Middle, Ring, Pinky tips
-                const pips = [6, 10, 14, 18];    // Corresponding PIP joints
-                
-                let extendedCount = 0;
-                
-                const dist = (p1: any, p2: any) => Math.sqrt(
-                    Math.pow(p1.x - p2.x, 2) + 
-                    Math.pow(p1.y - p2.y, 2) + 
-                    Math.pow(p1.z - p2.z, 2)
-                );
+                // --- Hand 1: Controls Bloom (Open/Close) ---
+                const hand1 = result.landmarks[0];
+                const hand1Open = isHandOpen(hand1);
+                onBloomChange(hand1Open);
 
-                for (let i = 0; i < 4; i++) {
-                    const dTip = dist(wrist, landmarks[fingers[i]]);
-                    const dPip = dist(wrist, landmarks[pips[i]]);
-                    
-                    // If tip is significantly further from wrist than the knuckle is, it's extended
-                    if (dTip > dPip) {
-                        extendedCount++;
+                // --- Hand 2: Controls Color (Open) ---
+                if (result.landmarks.length > 1) {
+                    setSecondHandDetected(true);
+                    const hand2 = result.landmarks[1];
+                    const hand2Open = isHandOpen(hand2);
+
+                    if (hand2Open) {
+                        const now = Date.now();
+                        // 1.5 second cooldown to prevent strobing
+                        if (now - lastColorChangeTime.current > 1500) {
+                            onSwipe(); // Triggers random color change
+                            lastColorChangeTime.current = now;
+                        }
                     }
+                } else {
+                    setSecondHandDetected(false);
                 }
-
-                // If 3 or more fingers are extended, we consider it OPEN (Bloom)
-                const isHandOpen = extendedCount >= 3;
-                onBloomChange(isHandOpen);
+                
             } else {
-                // No hand detected -> Closed (Bud) and Not Present
+                // No hand detected
                 setHandDetected(false);
+                setSecondHandDetected(false);
                 onPresenceChange(false);
                 onBloomChange(false);
             }
@@ -134,8 +164,14 @@ const HandTracker: React.FC<HandTrackerProps> = ({ onBloomChange, onPresenceChan
 
   if (error) {
     return (
-        <div className="absolute bottom-4 right-4 bg-red-900/80 text-white p-2 rounded text-xs border border-red-500">
-            {error}. Using Auto-Mode.
+        <div className="absolute bottom-4 right-4 bg-red-900/90 text-white p-3 rounded-lg border border-red-500 shadow-lg flex flex-col items-center gap-2 pointer-events-auto z-50">
+            <div className="text-xs font-mono text-red-200 text-center">{error}</div>
+            <button 
+                onClick={() => { setError(null); setLoading(true); startWebcam(); }}
+                className="bg-red-600 hover:bg-red-500 text-white px-3 py-1 rounded text-xs font-bold transition-colors uppercase tracking-wider"
+            >
+                Enable Camera
+            </button>
         </div>
     );
   }
@@ -155,12 +191,25 @@ const HandTracker: React.FC<HandTrackerProps> = ({ onBloomChange, onPresenceChan
                     <div className="w-4 h-4 border-2 border-pink-500 border-t-transparent rounded-full animate-spin"></div>
                 </div>
             )}
-            <div className="absolute bottom-1 right-1 px-1 bg-black/60 text-[10px] text-white rounded">
-                {handDetected ? "Hand Detected" : "No Hand"}
+            <div className="absolute bottom-1 right-1 px-1 flex flex-col items-end gap-1">
+                <div className="bg-black/60 text-[10px] text-white rounded px-1">
+                    {handDetected ? "Hand 1 Active" : "Scanning..."}
+                </div>
+                {secondHandDetected && (
+                     <div className="bg-blue-600/80 text-[10px] text-white rounded px-1 animate-pulse">
+                        Hand 2 Detected
+                    </div>
+                )}
             </div>
         </div>
-        <div className="mt-1 text-[10px] text-pink-300/70 font-mono">
-           {handDetected ? "Control: OPEN/CLOSE" : "Show hand to gather particles"}
+        <div className="mt-1 text-[10px] text-pink-300/70 font-mono text-right">
+           {handDetected ? 
+             <>
+               <div>Hand 1: Open to BLOOM</div>
+               <div>Hand 2: Open to CHANGE COLOR</div>
+             </> : 
+             "Show hand to Interact"
+           }
         </div>
     </div>
   );
